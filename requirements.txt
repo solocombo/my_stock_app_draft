@@ -2,5 +2,6 @@ pandas>=2.2
 numpy>=1.26
 requests>=2.31
 pyyaml>=6.0
-anthropic>=2.5   # 只有使用 llm / quant+llm 策略時需要
+anthropic>=2.5          # 只有使用 llm 相關策略時需要
+fugle-marketdata>=2.8   # 只有使用富果行情（盤中報價、分 K）時需要
 pytest>=8        # 開發用

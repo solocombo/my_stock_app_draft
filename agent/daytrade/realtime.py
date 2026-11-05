@@ -128,10 +128,20 @@ class Watcher:
         return []
 
 
+def get_quote_fetcher(cfg):
+    src = cfg["daytrade"].get("quote_source", "twse_mis")
+    if src == "fugle":
+        from ..fugle import _client, fetch_quotes as fugle_quotes
+        client = _client()
+        return lambda ids: fugle_quotes(ids, client)
+    return fetch_quotes
+
+
 def watch(plans, cfg, interval=10, dry_run=False):
     w = Watcher(plans, cfg)
     ids = [p["stock_id"] for p in plans]
-    print(f"監控 {', '.join(ids)}，每 {interval} 秒更新；Ctrl+C 結束")
+    fetch = get_quote_fetcher(cfg)
+    print(f"監控 {', '.join(ids)}，報價來源 {cfg['daytrade'].get('quote_source', 'twse_mis')}，每 {interval} 秒更新；Ctrl+C 結束")
     while True:
         now = datetime.now(TZ)
         if now.strftime("%H:%M") > "13:30":
@@ -141,7 +151,7 @@ def watch(plans, cfg, interval=10, dry_run=False):
             time.sleep(interval)
             continue
         try:
-            quotes = fetch_quotes(ids)
+            quotes = fetch(ids)
         except Exception as e:
             print("報價失敗：", e)
             time.sleep(interval)

@@ -111,6 +111,7 @@ class DemoProvider:
 # ---------------------------------------------------------------- FinMind
 
 class FinMindProvider:
+    """FinMind API v4。每個 fetch_* 回傳已正規化的 DataFrame，供 DataStore 增量快取使用。"""
     URL = "https://api.finmindtrade.com/api/v4/data"
 
     def __init__(self, token=None, sleep=0.3):
@@ -122,85 +123,76 @@ class FinMindProvider:
         if data_id:
             params["data_id"] = data_id
         if start:
-            params["start_date"] = str(start)
+            params["start_date"] = str(pd.Timestamp(start).date())
         if end:
-            params["end_date"] = str(end)
+            params["end_date"] = str(pd.Timestamp(end).date())
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         for attempt in range(4):
             try:
                 r = requests.get(self.URL, params=params, headers=headers, timeout=30)
+                if r.status_code == 402:
+                    raise RuntimeError("FinMind 額度用完（402），請稍後再試或設定 FINMIND_TOKEN")
                 r.raise_for_status()
                 js = r.json()
                 if js.get("status") not in (200, None):
                     raise RuntimeError(js.get("msg"))
                 time.sleep(self.sleep)
                 return pd.DataFrame(js.get("data", []))
+            except RuntimeError:
+                raise
             except Exception:
                 if attempt == 3:
                     raise
                 time.sleep(2 ** (attempt + 1))
 
-    def load(self, cfg) -> MarketData:
-        dcfg = cfg["data"]
-        universe = dcfg["universe"]
-        end = date.today()
-        start = end - timedelta(days=int(dcfg.get("lookback_days", 400)) * 7 // 5)
-        rev_start = end - timedelta(days=550)
-        notes, prices, revs, flows = [], [], [], []
-
+    # ---- 各資料集（正規化欄位） ----
+    def fetch_info(self, universe, fin_inds):
         info = self._get("TaiwanStockInfo")
         info = info[info["stock_id"].isin(universe)].drop_duplicates("stock_id")
-        fin_inds = set(dcfg.get("financial_industries", []))
-        info = pd.DataFrame({
-            "stock_id": info["stock_id"],
-            "name": info["stock_name"],
-            "industry": info["industry_category"],
-            "is_financial": info["industry_category"].isin(fin_inds),
+        return pd.DataFrame({
+            "stock_id": info["stock_id"], "name": info["stock_name"], "industry": info["industry_category"],
+            "is_financial": info["industry_category"].isin(set(fin_inds)),
             "market": info["type"].map({"twse": "tse", "tpex": "otc"}).fillna("tse"),
         })
-        vals = []
 
-        for sid in universe:
-            try:
-                p = self._get("TaiwanStockPrice", sid, start, end)
-                if p.empty:
-                    notes.append(f"{sid}: price missing")
-                    continue
-                prices.append(pd.DataFrame({"date": pd.to_datetime(p["date"]), "stock_id": sid,
-                                            "open": p["open"].astype(float), "high": p["max"].astype(float),
-                                            "low": p["min"].astype(float), "close": p["close"].astype(float),
-                                            "volume": p["Trading_Volume"].astype(float)}))
-                v = self._get("TaiwanStockPER", sid, end - timedelta(days=30), end)
-                if not v.empty:
-                    vals.append(pd.DataFrame({"date": pd.to_datetime(v["date"]), "stock_id": sid, "per": v["PER"].astype(float),
-                                              "pbr": v["PBR"].astype(float), "dy": v["dividend_yield"].astype(float)}))
-                r = self._get("TaiwanStockMonthRevenue", sid, rev_start, end)
-                if not r.empty:
-                    m = pd.to_datetime(dict(year=r["revenue_year"], month=r["revenue_month"], day=1))
-                    revs.append(pd.DataFrame({"month": m, "stock_id": sid, "revenue": r["revenue"].astype(float)}))
-                else:
-                    notes.append(f"{sid}: revenue missing")
-                f = self._get("TaiwanStockInstitutionalInvestorsBuySell", sid, end - timedelta(days=60), end)
-                if not f.empty:
-                    f["net"] = f["buy"].astype(float) - f["sell"].astype(float)
-                    g = f.groupby("date", as_index=False)["net"].sum()
-                    flows.append(pd.DataFrame({"date": pd.to_datetime(g["date"]), "stock_id": sid, "net_buy": g["net"]}))
-                else:
-                    notes.append(f"{sid}: institutional missing")
-            except Exception as e:  # 單檔失敗不中斷整批
-                notes.append(f"{sid}: fetch error {e}")
+    def fetch_prices(self, sid, start, end):
+        p = self._get("TaiwanStockPrice", sid, start, end)
+        if p.empty:
+            return p
+        return pd.DataFrame({"date": pd.to_datetime(p["date"]), "stock_id": sid,
+                             "open": p["open"].astype(float), "high": p["max"].astype(float),
+                             "low": p["min"].astype(float), "close": p["close"].astype(float),
+                             "volume": p["Trading_Volume"].astype(float)})
 
-        prices = pd.concat(prices, ignore_index=True)
-        as_of = prices["date"].max()
-        fl = pd.concat(flows, ignore_index=True) if flows else pd.DataFrame(columns=["date", "stock_id", "net_buy"])
-        if not fl.empty and fl["date"].max() < as_of:
-            notes.append(f"institutional data ends {fl['date'].max().date()} (< as_of {as_of.date()})")
-        return MarketData(
-            prices=prices,
-            revenue=pd.concat(revs, ignore_index=True) if revs else pd.DataFrame(columns=["month", "stock_id", "revenue"]),
-            flows=fl, info=info, as_of=as_of, notes=notes,
-            valuation=pd.concat(vals, ignore_index=True) if vals else pd.DataFrame(columns=["date", "stock_id", "per", "pbr", "dy"]),
-        )
+    def fetch_revenue(self, sid, start, end):
+        r = self._get("TaiwanStockMonthRevenue", sid, start, end)
+        if r.empty:
+            return r
+        m = pd.to_datetime(dict(year=r["revenue_year"], month=r["revenue_month"], day=1))
+        return pd.DataFrame({"month": m, "stock_id": sid, "revenue": r["revenue"].astype(float)})
+
+    def fetch_flows(self, sid, start, end):
+        f = self._get("TaiwanStockInstitutionalInvestorsBuySell", sid, start, end)
+        if f.empty:
+            return f
+        f["net"] = f["buy"].astype(float) - f["sell"].astype(float)
+        g = f.groupby("date", as_index=False)["net"].sum()
+        return pd.DataFrame({"date": pd.to_datetime(g["date"]), "stock_id": sid, "net_buy": g["net"]})
+
+    def fetch_valuation(self, sid, start, end):
+        v = self._get("TaiwanStockPER", sid, start, end)
+        if v.empty:
+            return v
+        return pd.DataFrame({"date": pd.to_datetime(v["date"]), "stock_id": sid, "per": v["PER"].astype(float),
+                             "pbr": v["PBR"].astype(float), "dy": v["dividend_yield"].astype(float)})
+
+    def load(self, cfg) -> MarketData:
+        """經由本機快取載入（先增量更新）。"""
+        from .datastore import DataStore
+        store = DataStore(cfg)
+        if cfg["data"].get("auto_update", True):
+            store.update(self)
+        return store.load()
 
 
 def get_provider(cfg):

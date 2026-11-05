@@ -5,3 +5,4 @@ output/
 portfolio.json
 cash_ledger.json
 .env
+data/

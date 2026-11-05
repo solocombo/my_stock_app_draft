@@ -69,6 +69,7 @@ notify:                    # 推播：各通道的金鑰請放環境變數，不
 
 data:
   source: demo             # demo（模擬資料，可離線）| finmind（真實台股，需網路；FINMIND_TOKEN 選填）
+  auto_update: true        # finmind：每次載入前先增量更新本機快取（data/cache/）
   lookback_days: 400
   universe: ["2330","2317","2454","2308","2382","2881","2882","2891","2303","3711",
              "2412","2886","2884","1216","2002","3008","2357","2885","2892","5880",
@@ -89,6 +90,8 @@ daytrade:
   tax: 0.0015              # 現股當沖證交稅減半
   allow_short: false       # 先賣後買（需資格，且受平盤下限制）
   strategy: orb            # orb 開盤區間突破 | vwap 回測均價站回
+  quote_source: twse_mis   # twse_mis（免費、非官方）| fugle（富果行情 API，需 FUGLE_API_KEY，較穩定）
+  save_bars: true          # auto 收盤流程中用富果存觀察名單的 1 分 K（需 FUGLE_API_KEY）
   orb_minutes: 15
   vwap_start: "09:30"
   max_risk_atr: 0.6        # 停損距離最多 0.6 ATR

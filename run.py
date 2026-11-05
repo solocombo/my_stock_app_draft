@@ -16,7 +16,13 @@
   python run.py cash forecast [--days 10]           未來每日預估餘額
   python run.py cash holidays-update                下載證交所休市日
 
+資料
+  python run.py data update                         增量更新本機快取（FinMind；第一次會回補歷史）
+  python run.py data status                         快取筆數、日期範圍、新鮮度檢查
+  python run.py auto                                收盤後一鍵：更新資料 → 每日建議 → 當沖名單 → 存分K → 推播
+
 當沖
+  python run.py daytrade save-bars [--ids 2330 2454]  用富果存今天的 1 分 K 到 data/kbars/
   python run.py daytrade plan                       盤前觀察名單（依前一日收盤）
   python run.py daytrade watch [--dry-run]          盤中監控並推播觸發
   python run.py daytrade backtest [--days 60] [--bars-dir data/kbars]
@@ -204,6 +210,13 @@ def cmd_daytrade(a, cfg):
         print(json.dumps(summ, ensure_ascii=False, indent=2))
         if not a.bars_dir:
             print("\n⚠️ 使用由日線合成的分 K，沒有真實盤中規律；請匯入真實分 K（--bars-dir）再評估策略。")
+    elif a.dt_cmd == "save-bars":
+        from agent.fugle import save_today_bars
+        ids = a.ids
+        if not ids:
+            path = sorted(p for p in os.listdir(a.out) if p.startswith("daytrade_plan_") and p.endswith(".json"))[-1]
+            ids = [r["stock_id"] for r in json.load(open(os.path.join(a.out, path), encoding="utf-8"))["watchlist"]]
+        save_today_bars(ids)
     elif a.dt_cmd == "record":
         led = _ledger(cfg)
         if led is None:
@@ -214,6 +227,49 @@ def cmd_daytrade(a, cfg):
         s = led.record_trade(cfg, d, "SELL", a.stock_id, a.shares, sell_px, daytrade=True, note="當沖")
         led.save()
         print(f"當沖 {a.stock_id} 淨損益 {b['net'] + s['net']:+,}，於 {s['settle_date']} 交割")
+
+
+# ------------------------------------------------------------------ 資料／自動化
+def cmd_data(a, cfg):
+    from agent.data import FinMindProvider
+    from agent.datastore import DataStore
+    store = DataStore(cfg)
+    if a.data_cmd == "update":
+        print(f"更新 {len(store.universe)} 檔（快取位置 data/cache/）")
+        store.update(FinMindProvider(), datasets=a.only)
+        for n in store.notes[:20]:
+            print("  !", n)
+    print(store.status().to_string(index=False))
+    fresh = store.freshness()
+    print("\n新鮮度：" + ("全部最新 ✅" if not fresh else ""))
+    for f in fresh:
+        print("  ⚠️", f)
+
+
+def cmd_auto(a, cfg):
+    """收盤後排程用（建議台北時間 16:30 之後，法人與本益比資料才完整）。"""
+    steps = []
+    if cfg["data"]["source"] == "finmind":
+        print("== 1/4 更新資料")
+        cmd_data(argparse.Namespace(data_cmd="update", only=None), cfg)
+        cfg = {**cfg, "data": {**cfg["data"], "auto_update": False}}
+    print("\n== 2/4 每日建議")
+    cmd_daily(argparse.Namespace(strategy=a.strategy, no_notify=a.no_notify, portfolio=a.portfolio, out=a.out), cfg)
+    print("\n== 3/4 當沖觀察名單")
+    cmd_daytrade(argparse.Namespace(dt_cmd="plan", no_notify=a.no_notify, out=a.out), cfg)
+    if cfg["daytrade"].get("save_bars") and os.environ.get("FUGLE_API_KEY"):
+        print("\n== 4/4 存今日分 K（富果）")
+        from agent.fugle import save_today_bars
+        ids = set(cfg["data"]["universe"]) if a.all_bars else set()
+        plans = sorted(p for p in os.listdir(a.out) if p.startswith("daytrade_plan_") and p.endswith(".json"))
+        today = str(date.today())
+        for p in plans[-2:]:      # 今天的名單（實際交易日 = 今天）＋ 剛產生的明日名單
+            js = json.load(open(os.path.join(a.out, p), encoding="utf-8"))
+            if js["trade_date"] >= today:
+                ids |= {r["stock_id"] for r in js["watchlist"]}
+        save_today_bars(sorted(ids))
+    else:
+        print("\n== 4/4 略過存分 K（未設定 FUGLE_API_KEY 或 daytrade.save_bars: false）")
 
 
 def main(argv=None):
@@ -281,6 +337,8 @@ def main(argv=None):
     db = dt.add_parser("backtest")
     db.add_argument("--days", type=int, default=60)
     db.add_argument("--bars-dir")
+    dsb = dt.add_parser("save-bars")
+    dsb.add_argument("--ids", nargs="*")
     dr = dt.add_parser("record")
     dr.add_argument("stock_id")
     dr.add_argument("shares", type=int)
@@ -288,6 +346,16 @@ def main(argv=None):
     dr.add_argument("exit", type=float)
     dr.add_argument("--side", choices=["long", "short"], default="long")
     dr.add_argument("--date")
+
+    da = sub.add_parser("data").add_subparsers(dest="data_cmd", required=True)
+    du = da.add_parser("update")
+    du.add_argument("--only", nargs="*", choices=["prices", "flows", "valuation", "revenue"])
+    da.add_parser("status")
+
+    au = sub.add_parser("auto")
+    au.add_argument("--strategy")
+    au.add_argument("--no-notify", action="store_true")
+    au.add_argument("--all-bars", action="store_true", help="分 K 存整個股票池（較耗額度）")
 
     sub.add_parser("notify-test")
 
@@ -304,7 +372,7 @@ def main(argv=None):
         return
     {"daily": cmd_daily, "fill": cmd_fill, "strategies": cmd_strategies, "backtest": cmd_backtest,
      "compare-strategies": cmd_compare_strategies, "compare": cmd_compare, "cash": cmd_cash,
-     "daytrade": cmd_daytrade}[a.cmd](a, cfg)
+     "daytrade": cmd_daytrade, "data": cmd_data, "auto": cmd_auto}[a.cmd](a, cfg)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,12 @@
-# 每個交易日台北時間 18:07 執行（收盤後、法人資料公布後），產生建議並推播。
-# 需在 repo Settings → Secrets 設定：PORTFOLIO_JSON、CASH_LEDGER_JSON（兩個檔案的內容）、推播金鑰、
-# 選填 FINMIND_TOKEN、ANTHROPIC_API_KEY。持股變動後記得更新 PORTFOLIO_JSON。
+# 每個交易日台北時間 16:47 執行：更新資料 → 每日建議 → 當沖名單 → 存分K → 推播。
+# （法人與本益比資料約 16:00 後才完整，太早跑資料會落後一天）
+# Secrets：PORTFOLIO_JSON、CASH_LEDGER_JSON（兩個檔案內容）、推播金鑰；
+# 選填 FINMIND_TOKEN、FUGLE_API_KEY、ANTHROPIC_API_KEY。
+# 注意：Actions 裡的 portfolio/cash_ledger 是唯讀複本，持股或餘額變動後請更新 Secrets。
 name: daily-plan
 on:
   schedule:
-    - cron: "7 10 * * 1-5"   # UTC 10:07 = 台北 18:07
+    - cron: "47 8 * * 1-5"   # UTC 08:47 = 台北 16:47
   workflow_dispatch:
 jobs:
   plan:
@@ -15,25 +17,32 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - name: Restore portfolio
+      - name: Restore data cache
+        uses: actions/cache@v4
+        with:
+          path: data/
+          key: market-data-${{ github.run_id }}
+          restore-keys: market-data-
+      - name: Restore portfolio & cash ledger
         env:
           PORTFOLIO_JSON: ${{ secrets.PORTFOLIO_JSON }}
           CASH_LEDGER_JSON: ${{ secrets.CASH_LEDGER_JSON }}
         run: |
           if [ -n "$PORTFOLIO_JSON" ]; then printf '%s' "$PORTFOLIO_JSON" > portfolio.json; fi
           if [ -n "$CASH_LEDGER_JSON" ]; then printf '%s' "$CASH_LEDGER_JSON" > cash_ledger.json; fi
-      - name: Run daily plan
+      - name: Run
         env:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+          FUGLE_API_KEY: ${{ secrets.FUGLE_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-        run: |
-          python run.py daily
-          python run.py daytrade plan
+        run: python run.py auto
       - uses: actions/upload-artifact@v4
         with:
           name: plan
-          path: output/
+          path: |
+            output/
+            data/kbars/

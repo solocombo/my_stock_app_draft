@@ -22,6 +22,43 @@ pytest -q
 
 改用真實資料：在 `config.yaml` 設定 `data.source: finmind`，並修改 `data.universe`（股票池）。FinMind token 可選填：`export FINMIND_TOKEN=...`。持股寫在 `portfolio.json`，格式參考 `portfolio.example.json`。
 
+## 0. 資料自動更新
+
+| 資料 | 來源 | 說明 |
+|---|---|---|
+| 日線、月營收、三大法人、本益比／殖利率 | FinMind（免費，token 選填） | 存在本機快取 `data/cache/`，每天只抓新增部分 |
+| 盤中即時報價、1 分 K | 證交所 MIS（免費、非官方）或**富果 MarketData API**（`FUGLE_API_KEY`） | 當沖監控與分 K 資料庫 |
+
+為什麼不全部用券商 API：富果行情 API 沒有月營收和法人資料，基本面、籌碼類策略還是要 FinMind。富果最有價值的是**穩定的即時報價和 1 分 K**。這個專案只讀行情，不需要富果的下單（Trade）API。
+
+```bash
+python run.py data update        # 第一次會回補約 1.5 年歷史；之後只抓缺的日期
+python run.py data status        # 快取範圍與新鮮度（哪些股票、哪些資料落後）
+python run.py auto               # 收盤後一鍵：更新資料 → 每日建議 → 當沖名單 → 存分 K → 推播
+```
+
+- `config.yaml` 設成 `data.source: finmind` 後，`daily`、`backtest` 都會讀快取；`auto_update: true` 時會先自動增量更新。
+- 新鮮度檢查會比對「現在應該有哪一天的資料」：日線 14:30 之後、法人和本益比 16:00 之後才算當天的資料。資料落後時會寫進報告的資料備註，避免拿舊資料下判斷。
+- **分 K 資料庫**：設定 `FUGLE_API_KEY` 後，`auto` 會在收盤後把當沖名單上股票的 1 分 K 存到 `data/kbars/`。累積一段時間後，就能用 `daytrade backtest --bars-dir data/kbars` 拿真實分 K 回測。
+- 盤中報價改用富果：在 `config.yaml` 設定 `daytrade.quote_source: fugle`。
+
+**排程（擇一）**
+
+- **GitHub Actions**：`.github/workflows/daily.yml` 每個交易日台北時間 16:47 執行 `auto`，並用 cache 保留資料快取。
+- **自己的電腦（Linux/macOS cron）**：
+
+```bash
+47 16 * * 1-5 cd /path/to/my_stock_app_draft && python run.py auto >> output/auto.log 2>&1
+```
+
+- **盤中當沖監控**：
+
+```bash
+55 8 * * 1-5 cd /path/to/my_stock_app_draft && python run.py daytrade watch >> output/watch.log 2>&1
+```
+
+- Windows 可用「工作排程器」設定同樣的指令。
+
 ## 1. 選股策略
 
 `python run.py strategies` 可以看完整清單。參數可在 `config.yaml` 的 `strategies:` 區段覆蓋。
@@ -139,6 +176,8 @@ python run.py daytrade record 2330 1000 1050 1062       # 記錄實際當沖，�
 ```
 agent/
   data.py           DemoProvider（模擬）／FinMindProvider（真實），含 OHLC、估值、法人
+  datastore.py      本機快取、增量更新、新鮮度檢查
+  fugle.py          富果行情：即時報價、1 分 K、歷史 K 線
   factors.py        約 30 個因子：基本面、動能、趨勢、突破、RSI/布林、波動、估值、籌碼
   strategies/       base.py（共用組合建構）、library.py（10 策略）、llm.py、quant.py（相容舊名稱）
   portfolio.py      持股、權重上限、目標權重 → 零股股數
@@ -150,4 +189,4 @@ my_strategies/      你的自訂策略
 run.py              指令入口
 ```
 
-`portfolio.json`、`cash_ledger.json`（個人資金資料）和 `output/` 都列在 `.gitignore`，不會上傳；`holidays.json` 可以 commit。
+`portfolio.json`、`cash_ledger.json`（個人資金資料）、`data/`（快取）和 `output/` 都列在 `.gitignore`，不會上傳；`holidays.json` 可以 commit。
