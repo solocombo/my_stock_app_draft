@@ -1,0 +1,65 @@
+# 個人版 AI 投資組合 Agent 設定
+# 只產生「建議」，不會自動下單。改策略參數前，先跑 `python run.py backtest` 比較。
+
+capital: 1000000           # 初始資金（TWD）；實際持股以 portfolio.json 為準
+lot_size: 1                # 1 = 支援零股；1000 = 只買整張
+min_order_value: 1000      # 單筆建議金額低於此值就不列（避免零股手續費吃掉報酬）
+
+# 策略：quant（Python 量化規則）| llm（Claude 選股）| quant+llm（量化選股 + LLM 風險審查）
+# 也可寫成 "custom:my_strategies.momentum_only"，載入你自己的 Python 策略
+strategy: quant
+
+portfolio:
+  target_names: 15         # 個人資金較小，預設 15 檔
+  min_names: 8
+  default_cap: 0.12        # 單檔上限
+  special_caps:
+    "2330": 0.25
+  financial_max_names: 4
+  financial_max_weight: 0.25
+  cash_target: 0.05
+  no_trade_band: 0.035     # 目標與現況權重差 ≤ 3.5% 不動，減少頻繁交易
+  swap_margin: 20          # 候選 S 需高出被換持股 ≥ 20 才替換
+  max_new_buys_per_day: 5
+
+entry:
+  f_min: 60
+  acc_min_exclusive: 0     # ACC > 0（營收成長在加速）
+  mom_min: 50
+  require_close_above_ma20: true
+  flow_pct_min: 20
+
+exit:
+  mom_stop: 25             # MOM < 25 → 建議全賣
+  ma60_break_days: 3       # 連續 3 日收在 MA60 下 → 建議全賣
+  f_exit: 40               # F < 40 或 ACC ≤ 0 → 建議全賣
+
+score_weights: {F: 0.40, MOM: 0.30, FLOW: 0.20, ACC: 0.10}
+
+costs:
+  fee_rate: 0.001425
+  fee_discount: 0.6        # 券商手續費折扣（例如 6 折）
+  min_fee: 1               # 零股最低手續費（依券商，常見 1 元或 20 元）
+  sell_tax: 0.003
+
+llm:
+  model: claude-opus-5-5
+  effort: medium
+  # 給 LLM 的額外指示（你的投資偏好）
+  guidance: "偏好基本面轉佳、獲利能見度高的公司；避免單一題材過度集中。"
+
+notify:                    # 推播：各通道的金鑰請放環境變數，不要寫在這裡
+  only_when_trades: false  # true = 有買賣建議才推播
+  channels: []             # 可填：telegram, discord, ntfy, email
+  # telegram: 需 TELEGRAM_BOT_TOKEN、TELEGRAM_CHAT_ID
+  # discord : 需 DISCORD_WEBHOOK_URL
+  # ntfy    : 需 NTFY_TOPIC（可選 NTFY_SERVER，預設 https://ntfy.sh）
+  # email   : 需 SMTP_HOST、SMTP_PORT、SMTP_USER、SMTP_PASSWORD、EMAIL_TO
+
+data:
+  source: demo             # demo（模擬資料，可離線）| finmind（真實台股，需網路；FINMIND_TOKEN 選填）
+  lookback_days: 400
+  universe: ["2330","2317","2454","2308","2382","2881","2882","2891","2303","3711",
+             "2412","2886","2884","1216","2002","3008","2357","2885","2892","5880",
+             "2207","3034","2379","3037","2345","6669","2603","1301","2395","3231"]
+  financial_industries: ["金融保險業", "金融業"]

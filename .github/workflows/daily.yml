@@ -1,0 +1,35 @@
+# 每個交易日台北時間 18:07 執行（收盤後、法人資料公布後），產生建議並推播。
+# 需在 repo Settings → Secrets 設定：PORTFOLIO_JSON（portfolio.json 內容）、推播金鑰、
+# 選填 FINMIND_TOKEN、ANTHROPIC_API_KEY。持股變動後記得更新 PORTFOLIO_JSON。
+name: daily-plan
+on:
+  schedule:
+    - cron: "7 10 * * 1-5"   # UTC 10:07 = 台北 18:07
+  workflow_dispatch:
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Restore portfolio
+        env:
+          PORTFOLIO_JSON: ${{ secrets.PORTFOLIO_JSON }}
+        run: |
+          if [ -n "$PORTFOLIO_JSON" ]; then printf '%s' "$PORTFOLIO_JSON" > portfolio.json; fi
+      - name: Run daily plan
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python run.py daily
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan
+          path: output/
