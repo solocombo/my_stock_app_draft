@@ -1,0 +1,8 @@
+[client]
+toolbarMode = "minimal"      # 隱藏 Deploy 等開發者按鈕
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+primaryColor = "#d9480f"

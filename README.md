@@ -14,9 +14,40 @@
 ## 快速開始
 
 ```bash
+git clone https://github.com/solocombo/my_stock_app_draft.git
+cd my_stock_app_draft
 pip install -r requirements.txt
-python run.py cash set 400000          # 建立交割帳（填你目前的交割帳戶餘額）
-python run.py daily --no-notify        # 用模擬資料跑一次
+streamlit run app.py                    # 開啟網頁介面 → 瀏覽器自動打開 http://localhost:8501
+```
+
+預設使用**模擬資料**，所以不需要任何金鑰就能先試玩。照下面的順序試一輪：
+
+1. **現金池**：輸入你的交割帳戶餘額，按「更新餘額」。
+2. **今日建議**：選一個策略，按「產生建議」。
+3. 在建議單上勾選你實際下單的項目（股數和價格可以修改），按「記錄成交」，持股和交割帳會一起更新。
+4. 切到**持股**、**現金池**，看部位和未來每天的預估餘額。
+5. **策略比較**：選幾個策略一起回測。
+6. **當沖**：產生明日觀察名單。
+
+### 在手機上使用
+
+- **同一個 Wi-Fi**：在電腦執行下面的指令，手機瀏覽器開 `http://<電腦的區網 IP>:8501`。
+
+```bash
+streamlit run app.py --server.address 0.0.0.0
+```
+
+- **在外面也要用**：電腦和手機都裝 [Tailscale](https://tailscale.com)（免費的私人 VPN），手機開 `http://<電腦的 Tailscale IP>:8501`。不建議直接把服務開放到公開網路，這個介面沒有登入機制。
+- 用 iPhone Safari 的「分享 → 加入主畫面」，就會像 App 一樣有圖示。
+- 每日建議和當沖觸發的**推播**本來就會送到手機（Telegram／ntfy），不開網頁也收得到。
+
+### 指令列（自動化、排程用）
+
+GUI 能做的事，指令列都能做，適合放進排程：
+
+```bash
+python run.py cash set 400000          # 建立交割帳
+python run.py daily --no-notify        # 產生建議
 pytest -q
 ```
 
@@ -187,6 +218,7 @@ agent/
   report.py / notify.py / backtest.py / pipeline.py
 my_strategies/      你的自訂策略
 run.py              指令入口
+app.py              網頁介面（Streamlit，手機可用）
 ```
 
 `portfolio.json`、`cash_ledger.json`（個人資金資料）、`data/`（快取）和 `output/` 都列在 `.gitignore`，不會上傳；`holidays.json` 可以 commit。

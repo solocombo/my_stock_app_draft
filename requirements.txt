@@ -4,4 +4,5 @@ requests>=2.31
 pyyaml>=6.0
 anthropic>=2.5          # 只有使用 llm 相關策略時需要
 fugle-marketdata>=2.8   # 只有使用富果行情（盤中報價、分 K）時需要
+streamlit>=1.50         # 網頁介面（app.py）
 pytest>=8        # 開發用
