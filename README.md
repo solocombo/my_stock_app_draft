@@ -38,7 +38,11 @@ streamlit run app.py --server.address 0.0.0.0
 ```
 
 - **在外面也要用**：電腦和手機都裝 [Tailscale](https://tailscale.com)（免費的私人 VPN），手機開 `http://<電腦的 Tailscale IP>:8501`。不建議直接把服務開放到公開網路，這個介面沒有登入機制。
-- 用 iPhone Safari 的「分享 → 加入主畫面」，就會像 App 一樣有圖示。
+- **加到主畫面**（像 App 一樣有圖示）：
+  - Android：用 Chrome 開啟後，按右上角「⋮ → 加到主畫面」。
+  - iPhone：用 Safari 開啟後，按「分享 → 加入主畫面」。
+- **Android 推播建議用 ntfy**：Google Play 搜尋「ntfy」安裝，訂閱和 `NTFY_TOPIC` 相同的主題名稱。主題名稱請取得難猜一點，因為知道名稱的人都能看到你的訊息。
+  - 收不到或延遲時，到「設定 → 應用程式 → ntfy → 電池」改成「不受限制」。Android 的省電機制常會擋掉背景通知。
 - 每日建議和當沖觸發的**推播**本來就會送到手機（Telegram／ntfy），不開網頁也收得到。
 
 ### 指令列（自動化、排程用）
