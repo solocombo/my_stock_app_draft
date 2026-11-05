@@ -48,6 +48,19 @@ streamlit run app.py --server.address 0.0.0.0
   - 收不到或延遲時，到「設定 → 應用程式 → ntfy → 電池」改成「不受限制」。Android 的省電機制常會擋掉背景通知。
 - 每日建議和當沖觸發的**推播**本來就會送到手機（Telegram／ntfy），不開網頁也收得到。
 
+### 放到雲端主機（不用開電腦）
+
+見 [deploy/README.md](deploy/README.md)：Oracle Cloud 永久免費主機或 US$5 VPS，一行指令就能部署。部署後每天自動推播，手機透過 Tailscale 私密連線。
+
+### 個人設定
+
+不要直接改 `config.yaml`，把要改的項目寫進 `config.local.yaml`（不進 git，更新程式不衝突）：
+
+```yaml
+data: {source: finmind}
+notify: {channels: [ntfy]}
+```
+
 ### 指令列（自動化、排程用）
 
 GUI 能做的事，指令列都能做，適合放進排程：

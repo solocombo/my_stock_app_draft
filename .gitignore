@@ -6,3 +6,4 @@ portfolio.json
 cash_ledger.json
 .env
 data/
+config.local.yaml

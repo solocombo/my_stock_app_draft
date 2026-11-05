@@ -7,7 +7,11 @@ import yaml
 
 
 def load_config(path="config.yaml", overrides=None):
+    """讀 config.yaml，再疊上同目錄的 config.local.yaml（你的個人設定，不進 git，更新程式時不會衝突）。"""
     cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    local = Path(path).with_name("config.local.yaml")
+    if local.exists():
+        cfg = deep_merge(cfg, yaml.safe_load(local.read_text(encoding="utf-8")) or {})
     if overrides:
         cfg = deep_merge(cfg, overrides)
     return cfg

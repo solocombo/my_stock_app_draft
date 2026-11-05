@@ -37,7 +37,7 @@ from datetime import date
 import pandas as pd
 
 from agent.backtest import compare_strategies, compare_variant, run_backtest
-from agent.calendar_tw import add_trading_days, load_holidays, update_holidays
+from agent.calendar_tw import add_trading_days, is_trading_day, load_holidays, update_holidays
 from agent.cashflow import Ledger
 from agent.config import load_config
 from agent.data import get_provider
@@ -199,6 +199,8 @@ def cmd_daytrade(a, cfg):
                 print("推播", r)
     elif a.dt_cmd == "watch":
         from agent.daytrade.realtime import watch
+        if _skip_if_closed(a):
+            return
         path = a.plan or sorted(p for p in os.listdir(a.out) if p.startswith("daytrade_plan_") and p.endswith(".json"))[-1]
         path = path if os.path.sep in path else os.path.join(a.out, path)
         plans = json.load(open(path, encoding="utf-8"))["watchlist"]
@@ -246,9 +248,18 @@ def cmd_data(a, cfg):
         print("  ⚠️", f)
 
 
+def _skip_if_closed(a) -> bool:
+    """排程用：休市日直接結束（--force 可強制執行）。"""
+    if getattr(a, "force", False) or is_trading_day(date.today(), load_holidays()):
+        return False
+    print(f"{date.today()} 不是交易日，略過。（加 --force 可強制執行）")
+    return True
+
+
 def cmd_auto(a, cfg):
     """收盤後排程用（建議台北時間 16:30 之後，法人與本益比資料才完整）。"""
-    steps = []
+    if _skip_if_closed(a):
+        return
     if cfg["data"]["source"] == "finmind":
         print("== 1/4 更新資料")
         cmd_data(argparse.Namespace(data_cmd="update", only=None), cfg)
@@ -334,6 +345,7 @@ def main(argv=None):
     dw.add_argument("--plan")
     dw.add_argument("--interval", type=int, default=10)
     dw.add_argument("--dry-run", action="store_true")
+    dw.add_argument("--force", action="store_true", help="休市日也執行")
     db = dt.add_parser("backtest")
     db.add_argument("--days", type=int, default=60)
     db.add_argument("--bars-dir")
@@ -356,6 +368,7 @@ def main(argv=None):
     au.add_argument("--strategy")
     au.add_argument("--no-notify", action="store_true")
     au.add_argument("--all-bars", action="store_true", help="分 K 存整個股票池（較耗額度）")
+    au.add_argument("--force", action="store_true", help="休市日也執行")
 
     sub.add_parser("notify-test")
 

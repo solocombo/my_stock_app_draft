@@ -1,4 +1,9 @@
 # 個人版 AI 投資組合 Agent 設定
+# 建議不要直接改這個檔：把要改的項目寫進 config.local.yaml（只寫要改的部分即可），
+# 例如：
+#   data: {source: finmind}
+#   notify: {channels: [ntfy]}
+# config.local.yaml 不會上傳 git，更新程式時也不會衝突。
 # 只產生「建議」，不會自動下單。改策略參數前，先跑 `python run.py backtest` 比較。
 
 capital: 1000000           # 初始資金（TWD）；實際持股以 portfolio.json 為準
@@ -91,6 +96,7 @@ daytrade:
   allow_short: false       # 先賣後買（需資格，且受平盤下限制）
   strategy: orb            # orb 開盤區間突破 | vwap 回測均價站回
   quote_source: twse_mis   # twse_mis（免費、非官方）| fugle（富果行情 API，需 FUGLE_API_KEY，較穩定）
+  watch_enabled: false     # 雲端主機部署時，是否每個交易日 08:55 自動啟動盤中監控
   save_bars: true          # auto 收盤流程中用富果存觀察名單的 1 分 K（需 FUGLE_API_KEY）
   orb_minutes: 15
   vwap_start: "09:30"
