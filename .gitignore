@@ -3,4 +3,5 @@ __pycache__/
 output/
 # 你的實際持股與資金：預設不上傳（repo 若為公開會外洩）
 portfolio.json
+cash_ledger.json
 .env

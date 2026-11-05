@@ -16,7 +16,8 @@ import pandas as pd
 from ..portfolio import Decision, Portfolio, cap_weights, name_cap
 from .quant import evidence
 
-_COLS = ["name", "industry", "close", "ma20", "ma60", "ma_break_days", "F", "ACC", "MOM", "FLOW", "S", "rev_month"]
+_COLS = ["name", "industry", "close", "ma20", "ma60", "ma_break_days", "F", "ACC", "MOM", "FLOW", "S", "rev_month",
+         "ret20", "ret60", "rsi14", "vol60", "dist_high250", "vol_ratio", "per", "pbr", "dy", "inst_streak"]
 
 
 def _client():
@@ -57,7 +58,9 @@ def _table(obs: pd.DataFrame, ids) -> str:
 SYSTEM = (
     "你是台股投資組合經理人的助理，只能根據提供的因子表做判斷，不得引用表外資訊或捏造數字。"
     "因子說明：F=基本面分數(0-100, 營收YoY排名)，ACC=營收YoY加速度(百分點, >0代表轉佳)，"
-    "MOM=動能分數(0-100)，FLOW=法人買賣超百分位(0-100)，S=綜合分數，ma_break_days=連續收在MA60下天數。"
+    "MOM=動能分數(0-100)，FLOW=法人買賣超百分位(0-100)，S=綜合分數，ma_break_days=連續收在MA60下天數，"
+    "ret20/ret60=報酬率，rsi14，vol60=年化波動，dist_high250=距一年高點，vol_ratio=5日/60日量比，"
+    "per/pbr=本益比/股價淨值比，dy=殖利率%，inst_streak=法人連買天數(負=連賣)。"
     "理由要引用表中的具體數值。"
 )
 

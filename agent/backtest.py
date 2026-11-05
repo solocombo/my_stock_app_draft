@@ -14,7 +14,7 @@ from .portfolio import Portfolio, apply_orders, decisions_to_orders
 from .strategies import get_strategy
 
 
-def run_backtest(md, cfg, start, end=None, rebalance_every=5, strategy_name=None):
+def run_backtest(md, cfg, start, end=None, rebalance_every=5, strategy_name=None, obs_cache=None):
     strat = get_strategy(strategy_name or cfg["strategy"])
     dates = sorted(md.prices["date"].unique())
     dates = [d for d in dates if d >= pd.Timestamp(start) and (end is None or d <= pd.Timestamp(end))]
@@ -23,10 +23,14 @@ def run_backtest(md, cfg, start, end=None, rebalance_every=5, strategy_name=None
     nav_rows, n_trades = [], 0
     for i, d in enumerate(dates):
         if i % rebalance_every == 0:
-            sub = md.slice_to(d)
-            obs = compute_observations(sub, cfg["score_weights"])
+            if obs_cache is not None and d in obs_cache:
+                obs = obs_cache[d]
+            else:
+                obs = compute_observations(md.slice_to(d), cfg["score_weights"])
+                if obs_cache is not None:
+                    obs_cache[d] = obs
             orders = decisions_to_orders(strat(obs, pf, cfg), pf, obs, cfg)
-            pf = apply_orders(pf, orders, cfg)
+            pf = apply_orders(pf, orders, cfg, trade_date=d)
             n_trades += len(orders)
         nav_rows.append((d, pf.nav(px_wide.loc[d]), len(pf.positions)))
     nav = pd.DataFrame(nav_rows, columns=["date", "nav", "n_names"]).set_index("date")
@@ -68,3 +72,12 @@ def compare_variant(md, cfg, variant: dict, starts, length_days=120, rebalance_e
     verdict = {"win_rate": round(float((df["diff"] > 0).mean()), 2), "median_diff": float(df["diff"].median())}
     verdict["pass"] = verdict["win_rate"] >= 2 / 3 and verdict["median_diff"] > 0
     return df, verdict
+
+
+def compare_strategies(md, cfg, names, start, end=None, rebalance_every=5):
+    """同一段期間、同一份因子快取，比較多個策略。"""
+    cache, rows = {}, []
+    for n in names:
+        _, s = run_backtest(md, cfg, start, end, rebalance_every, n, obs_cache=cache)
+        rows.append({"strategy": n, **s})
+    return pd.DataFrame(rows).sort_values("sharpe", ascending=False, na_position="last")

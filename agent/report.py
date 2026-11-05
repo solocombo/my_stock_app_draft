@@ -51,6 +51,16 @@ def to_markdown(plan, short=False) -> str:
         L.append("## 今日無買賣建議")
     for n in plan.get("market_notes", []):
         L += ["", n]
+    cash = plan.get("cash")
+    if cash:
+        L += ["", f"## 現金池（T+2，下單日 {plan.get('trade_date')} → 交割日 {cash['settle_date']}）",
+              f"帳戶餘額 {cash['bank_balance']:,.0f}（{cash['balance_date']}）｜未交割淨額 {cash['pending_net']:+,}｜"
+              f"本次可用買進額度 {cash['buy_budget']:,}", "",
+              "| 日期 | 入帳 | 扣款 | 預估餘額 | 項目 |", "|---|---:|---:|---:|---|"]
+        L += [f"| {r['date']} | {r['in']:,} | {r['out']:,} | {r['balance']:,} | {r['items']} |" for r in cash["forecast_if_executed"]]
+        if cash["shortfalls"]:
+            L += ["", "🚨 **違約交割風險**：以下日期餘額低於安全水位，請先入金或減少買進："]
+            L += [f"- {r['date']}：預估 {r['balance']:,}" for r in cash["shortfalls"]]
     if not short:
         holds = [d for d in plan["decisions"] if d["action"] == "HOLD"]
         if holds:

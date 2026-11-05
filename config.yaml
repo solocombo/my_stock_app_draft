@@ -5,9 +5,19 @@ capital: 1000000           # 初始資金（TWD）；實際持股以 portfolio.j
 lot_size: 1                # 1 = 支援零股；1000 = 只買整張
 min_order_value: 1000      # 單筆建議金額低於此值就不列（避免零股手續費吃掉報酬）
 
-# 策略：quant（Python 量化規則）| llm（Claude 選股）| quant+llm（量化選股 + LLM 風險審查）
-# 也可寫成 "custom:my_strategies.momentum_only"，載入你自己的 Python 策略
-strategy: quant
+# 策略（`python run.py strategies` 看完整清單）：
+#   fundamental 基本面轉折 | momentum 動能 | trend 均線多頭 | breakout 突破 | value 價值
+#   dividend 高股息 | lowvol 低波動 | mean_reversion 拉回買進 | chips 籌碼 | multifactor 多因子
+#   llm（Claude 選股）| <任一策略>+llm（規則選股 + LLM 審查，例如 momentum+llm）
+#   custom:my_strategies.momentum_only（你自己的 Python 策略）
+strategy: fundamental
+
+# 各策略參數覆蓋（不寫就用預設值，預設值見 agent/strategies/library.py）
+strategies:
+  momentum: {mom_min: 75, max_ret20: 0.30}
+  value: {per_max: 15, pbr_max: 2.0}
+  dividend: {dy_min: 5.0}
+  mean_reversion: {rsi_max: 35, max_days: 10, stop_loss: 0.08}
 
 portfolio:
   target_names: 15         # 個人資金較小，預設 15 檔
@@ -21,6 +31,7 @@ portfolio:
   no_trade_band: 0.035     # 目標與現況權重差 ≤ 3.5% 不動，減少頻繁交易
   swap_margin: 20          # 候選 S 需高出被換持股 ≥ 20 才替換
   max_new_buys_per_day: 5
+  stop_loss: 0.15          # 硬停損：收盤比平均成本跌超過 15% 一律建議賣出（各策略可覆蓋）
 
 entry:
   f_min: 60
@@ -63,3 +74,29 @@ data:
              "2412","2886","2884","1216","2002","3008","2357","2885","2892","5880",
              "2207","3034","2379","3037","2345","6669","2603","1301","2395","3231"]
   financial_industries: ["金融保險業", "金融業"]
+
+cash:
+  reserve: 10000           # 交割帳戶安全水位，買進建議不會動用這筆錢
+
+# 當沖：與波段組合分開管理。只產生計畫與盤中提醒，不會下單。
+daytrade:
+  capital: 300000          # 當沖可動用額度（實際只結算價差，但券商額度與風險以此計）
+  risk_per_trade: 0.005    # 每筆最大虧損 = capital × 0.5%
+  max_position_value: 150000
+  max_trades_per_day: 3
+  daily_max_loss: 0.015    # 單日累計虧損達 1.5% 就停止開新倉
+  lot_size: 1000           # 零股能否當沖、能否先賣後買，請以券商規定為準
+  tax: 0.0015              # 現股當沖證交稅減半
+  allow_short: false       # 先賣後買（需資格，且受平盤下限制）
+  strategy: orb            # orb 開盤區間突破 | vwap 回測均價站回
+  orb_minutes: 15
+  vwap_start: "09:30"
+  max_risk_atr: 0.6        # 停損距離最多 0.6 ATR
+  rr_target: 2.0           # 停利 = 2 倍風險
+  entry_cutoff: "11:30"    # 之後不開新倉
+  flat_time: "13:20"       # 強制平倉時間
+  watchlist_size: 6
+  min_avg_value: 200000000 # 20 日均成交值 ≥ 2 億
+  atr_pct_min: 0.02
+  atr_pct_max: 0.08
+  min_volume_ratio: 1.2

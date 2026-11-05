@@ -1,10 +1,14 @@
-"""因子計算：每檔股票產生一列 observation。
+"""因子計算：每檔股票一列 observation，所有策略共用。
 
-F    基本面分數 0-100：近 3 月營收 YoY 與近 6 月 YoY 為正的月數，在股票池內排名
-ACC  營收加速度（百分點）：近 3 月平均 YoY − 前 3 月平均 YoY。> 0 代表「基本面轉折向上」
-MOM  動能分數 0-100：20/60/120 日報酬加權後排名
-FLOW 籌碼百分位 0-100：近 20 日法人買賣超 / 近 20 日均量
-技術面：MA20、MA60、ma_break_days（連續收在 MA60 下的天數）
+基本面   F（0-100 營收成長排名）、ACC（營收 YoY 加速度，百分點）
+動能     MOM（0-100）、ret5/20/60/120/250
+趨勢     ma5/20/60、ma60_slope、ma_break_days（連續收在 MA60 下）、ma20_break_days
+突破     dist_high250（距 250 日高點 %）、vol_ratio（5 日量 / 60 日量）、dd20（距 20 日高點回落 %）
+擺盪     rsi14、bb_pct（布林 %B，0=下軌、1=上軌）
+風險     vol60（年化波動）、atr14_pct
+估值     per、pbr、dy（殖利率 %）
+籌碼     FLOW（0-100）、inst_streak（法人連買天數，負數 = 連賣）
+流動性   avg_value20（20 日均成交值）
 """
 from __future__ import annotations
 
@@ -16,31 +20,61 @@ def _pct_rank(s: pd.Series) -> pd.Series:
     return (s.rank(pct=True) * 100).round(1)
 
 
+def _streak(mask: np.ndarray) -> int:
+    n = 0
+    for b in mask[::-1]:
+        if not b:
+            break
+        n += 1
+    return n
+
+
+def _rsi(c: pd.Series, n=14) -> float:
+    d = c.diff()
+    up = d.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
+    dn = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False).mean()
+    rs = up.iloc[-1] / dn.iloc[-1] if dn.iloc[-1] > 0 else np.inf
+    return float(100 - 100 / (1 + rs))
+
+
 def _tech(prices: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for sid, g in prices.sort_values("date").groupby("stock_id"):
-        c = g["close"].reset_index(drop=True)
+        g = g.reset_index(drop=True)
+        c = g["close"]
         if len(c) < 121:
             rows.append({"stock_id": sid, "close": c.iloc[-1] if len(c) else np.nan, "tech_na": True})
             continue
-        ma20 = c.rolling(20).mean()
-        ma60 = c.rolling(60).mean()
-        below = (c < ma60).to_numpy()
-        breaks = 0
-        for b in below[::-1]:
-            if not b:
-                break
-            breaks += 1
+        ma5, ma20, ma60 = (c.rolling(n).mean() for n in (5, 20, 60))
+        hi = g["high"] if "high" in g else c
+        lo = g["low"] if "low" in g else c
+        tr = pd.concat([hi - lo, (hi - c.shift()).abs(), (lo - c.shift()).abs()], axis=1).max(axis=1)
+        sd20 = c.rolling(20).std()
+        last = len(c) - 1
+        n250 = min(250, len(c))
         rows.append({
             "stock_id": sid,
             "close": round(float(c.iloc[-1]), 2),
+            "ma5": round(float(ma5.iloc[-1]), 2),
             "ma20": round(float(ma20.iloc[-1]), 2),
             "ma60": round(float(ma60.iloc[-1]), 2),
-            "ma_break_days": breaks,
+            "ma60_slope": float(ma60.iloc[-1] / ma60.iloc[-21] - 1),
+            "ma_break_days": _streak((c < ma60).to_numpy()),
+            "ma20_break_days": _streak((c < ma20).to_numpy()),
+            "ret5": float(c.iloc[-1] / c.iloc[-6] - 1),
             "ret20": float(c.iloc[-1] / c.iloc[-21] - 1),
             "ret60": float(c.iloc[-1] / c.iloc[-61] - 1),
             "ret120": float(c.iloc[-1] / c.iloc[-121] - 1),
+            "ret250": float(c.iloc[-1] / c.iloc[-n250] - 1),
+            "dist_high250": float(c.iloc[-1] / hi.tail(n250).max() - 1),
+            "dd20": float(c.iloc[-1] / c.tail(20).max() - 1),
+            "vol_ratio": float(g["volume"].tail(5).mean() / g["volume"].tail(60).mean()),
+            "rsi14": round(_rsi(c), 1),
+            "bb_pct": float((c.iloc[-1] - (ma20.iloc[-1] - 2 * sd20.iloc[-1])) / (4 * sd20.iloc[-1])) if sd20.iloc[-1] > 0 else 0.5,
+            "vol60": float(c.pct_change().tail(60).std() * np.sqrt(252)),
+            "atr14_pct": float(tr.tail(14).mean() / c.iloc[last]),
             "avg_vol20": float(g["volume"].tail(20).mean()),
+            "avg_value20": float((g["volume"] * c).tail(20).mean()),
             "tech_na": False,
         })
     return pd.DataFrame(rows)
@@ -62,24 +96,34 @@ def _fundamental(revenue: pd.DataFrame) -> pd.DataFrame:
             "yoy_pos6": int((yoy.iloc[-6:] > 0).sum()),
             "fund_na": False,
         })
+    return pd.DataFrame(rows, columns=["stock_id", "rev_month", "yoy3", "yoy3_prev", "yoy_pos6", "fund_na"])
+
+
+def _flow(flows: pd.DataFrame) -> pd.DataFrame:
+    if flows.empty:
+        return pd.DataFrame(columns=["stock_id", "net20", "inst_streak"])
+    rows = []
+    for sid, g in flows.sort_values("date").groupby("stock_id"):
+        n = g["net_buy"].to_numpy()
+        buy, sell = _streak(n > 0), _streak(n < 0)
+        rows.append({"stock_id": sid, "net20": float(n[-20:].sum()), "inst_streak": buy if buy else -sell})
     return pd.DataFrame(rows)
 
 
-def _flow(flows: pd.DataFrame, as_of) -> pd.DataFrame:
-    if flows.empty:
-        return pd.DataFrame(columns=["stock_id", "net20", "flow_date"])
-    f = flows.sort_values("date")
-    out = f.groupby("stock_id").agg(net20=("net_buy", lambda x: x.tail(20).sum()), flow_date=("date", "max")).reset_index()
-    return out
+def _valuation(val: pd.DataFrame) -> pd.DataFrame:
+    if val is None or val.empty:
+        return pd.DataFrame(columns=["stock_id", "per", "pbr", "dy"])
+    return val.sort_values("date").groupby("stock_id")[["per", "pbr", "dy"]].last().reset_index()
 
 
 def compute_observations(md, weights) -> pd.DataFrame:
-    tech = _tech(md.prices)
-    fund = _fundamental(md.revenue)
-    flow = _flow(md.flows, md.as_of)
-    df = tech.merge(fund, on="stock_id", how="left").merge(flow, on="stock_id", how="left")
-    df = df.merge(md.info, on="stock_id", how="left")
+    df = (_tech(md.prices)
+          .merge(_fundamental(md.revenue), on="stock_id", how="left")
+          .merge(_flow(md.flows), on="stock_id", how="left")
+          .merge(_valuation(getattr(md, "valuation", None)), on="stock_id", how="left")
+          .merge(md.info, on="stock_id", how="left"))
     df["fund_na"] = df["fund_na"].astype("boolean").fillna(True).astype(bool)
+    df["tech_na"] = df["tech_na"].astype(bool)
 
     ok = ~df["tech_na"]
     mom_raw = 0.2 * df["ret20"] + 0.5 * df["ret60"] + 0.3 * df["ret120"]
@@ -99,4 +143,6 @@ def compute_observations(md, weights) -> pd.DataFrame:
     df["S"] = (w["F"] * df["F"] + w["MOM"] * df["MOM"] + w["FLOW"] * df["FLOW"].fillna(50)
                + w["ACC"] * df["ACC_score"]).round(1)
     df["above_ma20"] = df["close"] >= df["ma20"]
-    return df.set_index("stock_id")
+    out = df.set_index("stock_id")
+    out.attrs["as_of"] = md.as_of
+    return out

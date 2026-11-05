@@ -74,3 +74,14 @@ def notify(plan, cfg) -> list[str]:
         except Exception as e:  # 一個通道失敗不影響其他通道
             results.append(f"{ch}: failed ({e})")
     return results
+
+
+def send_all(title, body, cfg) -> list[str]:
+    results = []
+    for ch in (cfg.get("notify", {}) or {}).get("channels", []) or []:
+        try:
+            CHANNELS[ch](title, body)
+            results.append(f"{ch}: ok")
+        except Exception as e:
+            results.append(f"{ch}: failed ({e})")
+    return results

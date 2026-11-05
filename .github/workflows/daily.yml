@@ -1,5 +1,5 @@
 # 每個交易日台北時間 18:07 執行（收盤後、法人資料公布後），產生建議並推播。
-# 需在 repo Settings → Secrets 設定：PORTFOLIO_JSON（portfolio.json 內容）、推播金鑰、
+# 需在 repo Settings → Secrets 設定：PORTFOLIO_JSON、CASH_LEDGER_JSON（兩個檔案的內容）、推播金鑰、
 # 選填 FINMIND_TOKEN、ANTHROPIC_API_KEY。持股變動後記得更新 PORTFOLIO_JSON。
 name: daily-plan
 on:
@@ -18,8 +18,10 @@ jobs:
       - name: Restore portfolio
         env:
           PORTFOLIO_JSON: ${{ secrets.PORTFOLIO_JSON }}
+          CASH_LEDGER_JSON: ${{ secrets.CASH_LEDGER_JSON }}
         run: |
           if [ -n "$PORTFOLIO_JSON" ]; then printf '%s' "$PORTFOLIO_JSON" > portfolio.json; fi
+          if [ -n "$CASH_LEDGER_JSON" ]; then printf '%s' "$CASH_LEDGER_JSON" > cash_ledger.json; fi
       - name: Run daily plan
         env:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
@@ -28,7 +30,9 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-        run: python run.py daily
+        run: |
+          python run.py daily
+          python run.py daytrade plan
       - uses: actions/upload-artifact@v4
         with:
           name: plan

@@ -6,7 +6,7 @@ from agent.data import DemoProvider
 from agent.factors import compute_observations
 from agent.pipeline import run_day
 from agent.portfolio import Decision, Portfolio, apply_orders, cap_weights, decisions_to_orders
-from agent.strategies.quant import exit_reason
+from agent.strategies.library import ALL, REGISTRY
 
 
 @pytest.fixture(scope="module")
@@ -31,12 +31,11 @@ def test_financial_cap():
 
 
 def test_exit_rules(cfg):
-    row = pd.Series({"MOM": 20, "ma_break_days": 0, "fund_na": True})
-    assert "MOM" in exit_reason(row, cfg)
-    row = pd.Series({"MOM": 60, "ma_break_days": 3, "ma60": 100, "fund_na": True})
-    assert "MA60" in exit_reason(row, cfg)
-    row = pd.Series({"MOM": 60, "ma_break_days": 2, "ma60": 100, "fund_na": True})
-    assert exit_reason(row, cfg) is None
+    f = REGISTRY["fundamental"]
+    p = f.params(cfg)
+    assert "MOM" in f.exit_reason(pd.Series({"MOM": 20, "ma_break_days": 0, "fund_na": True}), p, None)
+    assert "MA60" in f.exit_reason(pd.Series({"MOM": 60, "ma_break_days": 3, "ma60": 100, "fund_na": True}), p, None)
+    assert f.exit_reason(pd.Series({"MOM": 60, "ma_break_days": 2, "ma60": 100, "fund_na": True}), p, None) is None
 
 
 def test_odd_lot_orders(cfg):
@@ -55,10 +54,11 @@ def test_daily_pipeline_runs_and_respects_constraints(md, cfg):
     w = new.weights(obs["close"])
     assert len(new.positions) <= cfg["portfolio"]["target_names"]
     assert max(w.values()) <= cfg["portfolio"]["default_cap"] + 0.01
+    p = REGISTRY["fundamental"].params(cfg)
     for d in decisions:
         if d.action == "BUY":
             r = obs.loc[d.stock_id]
-            assert r["F"] >= cfg["entry"]["f_min"] and r["ACC"] > 0 and r["MOM"] >= cfg["entry"]["mom_min"]
+            assert r["F"] >= p["f_min"] and r["ACC"] > 0 and r["MOM"] >= p["mom_min"]
 
 
 def test_no_lookahead(md):

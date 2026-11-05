@@ -14,6 +14,7 @@ class Portfolio:
     cash: float
     positions: dict[str, float] = field(default_factory=dict)   # stock_id -> 股數
     avg_cost: dict[str, float] = field(default_factory=dict)
+    entry_date: dict[str, str] = field(default_factory=dict)    # stock_id -> 首次買進日（持有天數類出場用）
 
     @classmethod
     def load(cls, path, capital):
@@ -22,7 +23,8 @@ class Portfolio:
             return cls(cash=float(capital))
         js = json.loads(p.read_text(encoding="utf-8"))
         return cls(cash=float(js["cash"]), positions={k: float(v) for k, v in js.get("positions", {}).items()},
-                   avg_cost={k: float(v) for k, v in js.get("avg_cost", {}).items()})
+                   avg_cost={k: float(v) for k, v in js.get("avg_cost", {}).items()},
+                   entry_date=dict(js.get("entry_date", {})))
 
     def save(self, path):
         Path(path).write_text(json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -100,8 +102,12 @@ def _fee(cfg, value):
     return max(c.get("min_fee", 1), value * c["fee_rate"] * c.get("fee_discount", 1.0))
 
 
-def decisions_to_orders(decisions: list[Decision], pf: Portfolio, obs: pd.DataFrame, cfg) -> list[Order]:
-    """目標權重 → 股數。先算賣單（釋出現金），再依現金比例縮放買單。"""
+def decisions_to_orders(decisions: list[Decision], pf: Portfolio, obs: pd.DataFrame, cfg,
+                        cash_budget: float | None = None) -> list[Order]:
+    """目標權重 → 股數。先算賣單（釋出現金），再依現金比例縮放買單。
+
+    cash_budget：T+2 交割日當天能付出的錢（由 cashflow.buy_budget 計算）。未提供時用 pf.cash。
+    """
     prices = obs["close"]
     nav = pf.nav(prices)
     lot = int(cfg.get("lot_size", 1))
@@ -128,7 +134,7 @@ def decisions_to_orders(decisions: list[Decision], pf: Portfolio, obs: pd.DataFr
             buys.append((d, int(delta), px))
 
     orders: list[Order] = []
-    cash = pf.cash
+    cash = pf.cash if cash_budget is None else cash_budget
     for d, sh, px in sells:
         v = sh * px
         cost = _fee(cfg, v) + v * cfg["costs"]["sell_tax"]
@@ -147,9 +153,9 @@ def decisions_to_orders(decisions: list[Decision], pf: Portfolio, obs: pd.DataFr
     return orders
 
 
-def apply_orders(pf: Portfolio, orders: list[Order], cfg) -> Portfolio:
+def apply_orders(pf: Portfolio, orders: list[Order], cfg, trade_date=None) -> Portfolio:
     """模擬以參考價成交（回測或你手動下單後同步持股用）。"""
-    new = Portfolio(pf.cash, dict(pf.positions), dict(pf.avg_cost))
+    new = Portfolio(pf.cash, dict(pf.positions), dict(pf.avg_cost), dict(pf.entry_date))
     for o in orders:
         if o.side == "SELL":
             new.positions[o.stock_id] = new.positions.get(o.stock_id, 0) - o.shares
@@ -157,10 +163,13 @@ def apply_orders(pf: Portfolio, orders: list[Order], cfg) -> Portfolio:
             if new.positions[o.stock_id] <= 0:
                 new.positions.pop(o.stock_id, None)
                 new.avg_cost.pop(o.stock_id, None)
+                new.entry_date.pop(o.stock_id, None)
         else:
             old_sh = new.positions.get(o.stock_id, 0)
             old_cost = new.avg_cost.get(o.stock_id, o.price_ref)
             new.positions[o.stock_id] = old_sh + o.shares
             new.avg_cost[o.stock_id] = round((old_sh * old_cost + o.value) / (old_sh + o.shares), 4)
             new.cash -= o.value + o.est_cost
+            if old_sh == 0 and trade_date is not None:
+                new.entry_date[o.stock_id] = str(pd.Timestamp(trade_date).date())
     return new
