@@ -20,6 +20,9 @@ pip install -r requirements.txt
 streamlit run app.py                    # 開啟網頁介面 → 瀏覽器自動打開 http://localhost:8501
 ```
 
+**Windows**：到專案資料夾雙擊 `start_gui.bat`。第一次執行會自動安裝套件，並顯示手機要連的網址。
+如果 `streamlit` 指令找不到，請改用 `py -m streamlit run app.py`。
+
 預設使用**模擬資料**，所以不需要任何金鑰就能先試玩。照下面的順序試一輪：
 
 1. **現金池**：輸入你的交割帳戶餘額，按「更新餘額」。
