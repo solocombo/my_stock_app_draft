@@ -65,7 +65,7 @@ nano config.local.yaml
 ```yaml
 data: {source: finmind}
 notify: {channels: [ntfy]}
-daytrade: {quote_source: fugle, watch_enabled: false}
+daytrade: {quote_source: fugle_ws, watch_enabled: true}   # 要做當沖才需要
 ```
 
 存檔後重啟網頁介面：
@@ -139,9 +139,37 @@ bash deploy/backup.sh
 scp -i 私鑰檔 ubuntu@主機IP:~/stock_backup_*.tar.gz .
 ```
 
-## 注意事項
+## 當沖放在雲端
 
-- **證交所 MIS 即時報價可能擋海外 IP**。主機不在台灣時，盤中監控請改用富果：在 `config.local.yaml` 設定 `daytrade: {quote_source: fugle}`，並在 `.env` 填 `FUGLE_API_KEY`。
+**主機在日本或韓國，對當沖的影響可以忽略。** 到台灣的網路延遲約 30～60 毫秒，而整條流程裡比這慢得多的環節是：
+
+- 報價更新
+- 推播送到手機（1～3 秒）
+- 你打開券商 App 下單（10 秒以上）
+
+真正要調整的是下面兩件事。
+
+1. **報價來源改用富果 WebSocket**：
+   - 在 `config.local.yaml` 設定 `daytrade: {quote_source: fugle_ws, watch_enabled: true}`，並在 `.env` 填 `FUGLE_API_KEY`。
+   - 為什麼不用證交所 MIS：它是非官方 API，可能擋海外 IP。
+   - WebSocket 的好處：有新報價伺服器就推送，程式每秒檢查一次；不吃 REST 額度；斷線會自動重連。
+2. **用券商的停損停利單縮短反應時間**：
+   - 收到進場推播、下單成交之後，立刻在券商 App 掛**停損停利（OCO）**或**觸價單**，價位就照推播訊息裡寫的。
+   - 出場就交給券商主機自動執行，不用一直盯盤，也不受手機通知延遲影響。
+
+把 `stock-watch` 開啟後，每個交易日 08:55 會自動啟動盤中監控，13:30 收盤自動結束：
+
+```bash
+sudo systemctl enable --now stock-watch.timer
+```
+
+開始實際交易前，建議先用乾跑模式觀察一天。乾跑只在主機上印出訊號，不會推播：
+
+```bash
+.venv/bin/python run.py daytrade watch --dry-run
+```
+
+## 注意事項
 - **記憶體只有 1 GB 的主機**，跑「策略比較」可能會很慢。可以加 swap：
 
 ```bash

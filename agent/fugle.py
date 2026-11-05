@@ -88,3 +88,82 @@ def save_today_bars(stock_ids, out_dir="data/kbars", client=None, log=print) -> 
         saved.append(p)
     log(f"  已存 {len(saved)} 檔分 K 到 {out_dir}/")
     return saved
+
+
+class FugleStream:
+    """富果 WebSocket 即時行情（aggregates 頻道：開高低收、成交量，與 REST quote 同格式）。
+
+    伺服器有更新就推送，比輪詢即時，也不會吃 REST 額度。斷線時 latest() 會回傳舊資料，
+    watch 迴圈會呼叫 ensure_connected() 自動重連。
+    """
+
+    def __init__(self, stock_ids, client_factory=None, log=print):
+        self.ids = list(stock_ids)
+        self.quotes: dict[str, dict] = {}
+        self.connected = False
+        self.log = log
+        self._factory = client_factory or self._default_factory
+        self._ws = None
+
+    @staticmethod
+    def _default_factory():
+        try:
+            from fugle_marketdata import WebSocketClient
+        except ImportError as e:
+            raise RuntimeError("請先 `pip install fugle-marketdata`") from e
+        key = os.environ.get("FUGLE_API_KEY")
+        if not key:
+            raise RuntimeError("未設定 FUGLE_API_KEY")
+        return WebSocketClient(api_key=key).stock
+
+    def _on_message(self, raw):
+        import json
+        try:
+            msg = json.loads(raw)
+        except (TypeError, ValueError):
+            return
+        if msg.get("event") not in ("data", "snapshot"):
+            return
+        d = msg.get("data") or {}
+        sid = d.get("symbol")
+        if not sid:
+            return
+        if "price" in d and "lastPrice" not in d:      # trades 頻道格式
+            q = self.quotes.get(sid, {}).copy()
+            q["last"] = d["price"]
+            q["volume"] = d.get("volume", q.get("volume"))
+            q["high"] = max(q.get("high") or d["price"], d["price"])
+            q["low"] = min(q.get("low") or d["price"], d["price"])
+            self.quotes[sid] = q
+        else:
+            self.quotes[sid] = _norm_quote(d)
+
+    def _on_disconnect(self, *args):
+        self.connected = False
+        self.log(f"富果 WebSocket 斷線：{args}")
+
+    def connect(self):
+        self._ws = self._factory()
+        self._ws.on("message", self._on_message)
+        self._ws.on("disconnect", self._on_disconnect)
+        self._ws.connect()
+        self._ws.subscribe({"channel": "aggregates", "symbols": self.ids})
+        self.connected = True
+        self.log(f"富果 WebSocket 已連線，訂閱 {', '.join(self.ids)}")
+
+    def ensure_connected(self):
+        if not self.connected:
+            try:
+                self.connect()
+            except Exception as e:
+                self.log(f"富果 WebSocket 連線失敗：{e}")
+
+    def latest(self, ids=None) -> dict[str, dict]:
+        return {k: v for k, v in self.quotes.items() if ids is None or k in ids}
+
+    def close(self):
+        if self._ws is not None:
+            try:
+                self._ws.disconnect()
+            except Exception:
+                pass

@@ -96,3 +96,58 @@ def test_fugle_normalizers():
         {"date": "2026-11-05T09:01:00.000+08:00", "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10, "average": 1.2},
         {"date": "2026-11-05T09:00:00.000+08:00", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 5, "average": 1}]})
     assert list(df["time"].dt.strftime("%H:%M")) == ["09:00", "09:01"]
+
+
+class FakeWS:
+    """模擬富果 WebSocketClient.stock：記錄訂閱，可手動推送訊息與斷線。"""
+    instances = []
+
+    def __init__(self):
+        self.handlers, self.subs = {}, []
+        FakeWS.instances.append(self)
+
+    def on(self, ev, fn):
+        self.handlers[ev] = fn
+
+    def connect(self):
+        pass
+
+    def subscribe(self, params):
+        self.subs.append(params)
+
+    def disconnect(self):
+        self.handlers["disconnect"](1000, "bye")
+
+    def push(self, data, event="data"):
+        import json
+        self.handlers["message"](json.dumps({"event": event, "channel": "aggregates", "data": data}))
+
+
+def test_fugle_stream_push_and_reconnect():
+    from datetime import datetime
+    from agent.daytrade.realtime import Watcher
+    from agent.fugle import FugleStream
+
+    FakeWS.instances.clear()
+    s = FugleStream(["X"], client_factory=FakeWS, log=lambda *_: None)
+    s.connect()
+    ws = FakeWS.instances[-1]
+    assert ws.subs == [{"channel": "aggregates", "symbols": ["X"]}]
+
+    cfg = load_config("config.yaml")
+    w = Watcher([{"stock_id": "X", "name": "", "side": "long", "atr": 3.0, "strategy": "orb"}], cfg)
+    agg = lambda last, h, v: {"symbol": "X", "openPrice": 100, "highPrice": h, "lowPrice": 99.5, "lastPrice": last,
+                              "previousClose": 99, "total": {"tradeVolume": v}}
+    ws.push(agg(100, 100.5, 10))
+    assert w.on_quote("X", s.latest()["X"], datetime(2026, 11, 5, 9, 15))[0].startswith("X 開盤區間")
+    ws.push(agg(101, 101, 20))
+    msg = w.on_quote("X", s.latest()["X"], datetime(2026, 11, 5, 9, 16))[0]
+    assert "買進" in msg and "OCO" in msg
+
+    ws.push({"symbol": "X", "price": 101.5, "volume": 25}, event="snapshot")   # trades 格式也能吃
+    assert s.latest()["X"]["last"] == 101.5 and s.latest()["X"]["high"] == 101.5
+
+    ws.disconnect()
+    assert not s.connected
+    s.ensure_connected()                       # 自動重連並重新訂閱
+    assert s.connected and len(FakeWS.instances) == 2 and FakeWS.instances[-1].subs

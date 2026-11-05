@@ -108,7 +108,8 @@ class Watcher:
             st.update(status="in_position", entry=entry, stop=stop, target=round_tick(target, side == "long"), shares=shares)
             self.trades_opened += 1
             return [f"🔔 {sid} {p.get('name', '')} {'做多買進' if side == 'long' else '做空先賣'} 約 {entry}，"
-                    f"{shares:,} 股；停損 {stop}，停利 {st['target']}（{d['flat_time']} 前平倉）"]
+                    f"{shares:,} 股；停損 {stop}，停利 {st['target']}（{d['flat_time']} 前平倉）。"
+                    f"成交後建議立刻在券商 App 掛停損停利（OCO／觸價）單，不用盯盤也會自動出場"]
 
         if st["status"] == "in_position":
             sign = 1 if side == "long" else -1
@@ -128,37 +129,52 @@ class Watcher:
         return []
 
 
-def get_quote_fetcher(cfg):
+def get_quote_fetcher(cfg, ids=None):
+    """回傳 (fetch(ids) -> quotes, tick 秒數, 關閉函式)。"""
     src = cfg["daytrade"].get("quote_source", "twse_mis")
+    if src == "fugle_ws":
+        from ..fugle import FugleStream
+        stream = FugleStream(ids or [])
+        stream.connect()
+
+        def fetch(ids_):
+            stream.ensure_connected()
+            return stream.latest(ids_)
+        return fetch, 1, stream.close
     if src == "fugle":
         from ..fugle import _client, fetch_quotes as fugle_quotes
         client = _client()
-        return lambda ids: fugle_quotes(ids, client)
-    return fetch_quotes
+        return (lambda ids_: fugle_quotes(ids_, client)), None, lambda: None
+    return fetch_quotes, None, lambda: None
 
 
 def watch(plans, cfg, interval=10, dry_run=False):
     w = Watcher(plans, cfg)
     ids = [p["stock_id"] for p in plans]
-    fetch = get_quote_fetcher(cfg)
-    print(f"監控 {', '.join(ids)}，報價來源 {cfg['daytrade'].get('quote_source', 'twse_mis')}，每 {interval} 秒更新；Ctrl+C 結束")
-    while True:
-        now = datetime.now(TZ)
-        if now.strftime("%H:%M") > "13:30":
-            print("已收盤，結束監控")
-            break
-        if now.strftime("%H:%M") < "09:00":
+    fetch, tick, close = get_quote_fetcher(cfg, ids)
+    interval = tick or interval
+    src = cfg["daytrade"].get("quote_source", "twse_mis")
+    print(f"監控 {', '.join(ids)}，報價來源 {src}，每 {interval} 秒檢查；Ctrl+C 結束")
+    try:
+        while True:
+            now = datetime.now(TZ)
+            if now.strftime("%H:%M") > "13:30":
+                print("已收盤，結束監控")
+                break
+            if now.strftime("%H:%M") < "09:00":
+                time.sleep(interval)
+                continue
+            try:
+                quotes = fetch(ids)
+            except Exception as e:
+                print("報價失敗：", e)
+                time.sleep(interval)
+                continue
+            for sid in ids:
+                for msg in w.on_quote(sid, quotes.get(sid, {}), now):
+                    print(now.strftime("%H:%M:%S"), msg)
+                    if not dry_run:
+                        send_all("當沖提醒", msg, cfg)
             time.sleep(interval)
-            continue
-        try:
-            quotes = fetch(ids)
-        except Exception as e:
-            print("報價失敗：", e)
-            time.sleep(interval)
-            continue
-        for sid in ids:
-            for msg in w.on_quote(sid, quotes.get(sid, {}), now):
-                print(now.strftime("%H:%M:%S"), msg)
-                if not dry_run:
-                    send_all("當沖提醒", msg, cfg)
-        time.sleep(interval)
+    finally:
+        close()

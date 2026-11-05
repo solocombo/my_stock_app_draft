@@ -95,7 +95,8 @@ daytrade:
   tax: 0.0015              # 現股當沖證交稅減半
   allow_short: false       # 先賣後買（需資格，且受平盤下限制）
   strategy: orb            # orb 開盤區間突破 | vwap 回測均價站回
-  quote_source: twse_mis   # twse_mis（免費、非官方）| fugle（富果行情 API，需 FUGLE_API_KEY，較穩定）
+  quote_source: twse_mis   # twse_mis（免費、非官方，可能擋海外 IP）
+                           # fugle（富果 REST 輪詢）| fugle_ws（富果 WebSocket 即時推送，雲端主機建議用這個）
   watch_enabled: false     # 雲端主機部署時，是否每個交易日 08:55 自動啟動盤中監控
   save_bars: true          # auto 收盤流程中用富果存觀察名單的 1 分 K（需 FUGLE_API_KEY）
   orb_minutes: 15
