@@ -105,7 +105,8 @@ daytrade:
   rr_target: 2.0           # 停利 = 2 倍風險
   entry_cutoff: "11:30"    # 之後不開新倉
   flat_time: "13:20"       # 強制平倉時間
-  watchlist_size: 6
+  watchlist_size: 5        # 富果免費方案 WebSocket 最多訂閱 5 檔
+  fugle_ws_max_subscriptions: 5
   min_avg_value: 200000000 # 20 日均成交值 ≥ 2 億
   atr_pct_min: 0.02
   atr_pct_max: 0.08

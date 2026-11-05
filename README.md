@@ -48,6 +48,19 @@ streamlit run app.py --server.address 0.0.0.0
   - 收不到或延遲時，到「設定 → 應用程式 → ntfy → 電池」改成「不受限制」。Android 的省電機制常會擋掉背景通知。
 - 每日建議和當沖觸發的**推播**本來就會送到手機（Telegram／ntfy），不開網頁也收得到。
 
+### 零成本組合（全部免費）
+
+| 項目 | 免費方案 | 限制 |
+|---|---|---|
+| 主機 | Oracle Cloud 永久免費 ARM VM | 熱門區域可能搶不到機器，詳見 deploy/README.md |
+| 每日資料 | FinMind 免費會員 | 30 檔股票每天增量更新，請求次數遠低於額度 |
+| 當沖即時報價、分 K | 富果「基本用戶」（免費） | WebSocket 最多訂閱 5 檔、日內 API 60 次／分鐘，所以當沖名單預設 5 檔 |
+| 推播 | ntfy | 無 |
+| 手機私密連線 | Tailscale 個人方案 | 無 |
+| 選股 | 規則型量化策略 | 不開 Claude 審查（`+llm` 要付 API 費用） |
+
+富果的方案與額度以[官方定價頁](https://developer.fugle.tw/docs/pricing/)為準。
+
 ### 放到雲端主機（不用開電腦）
 
 見 [deploy/README.md](deploy/README.md)：Oracle Cloud 永久免費主機或 US$5 VPS，一行指令就能部署。部署後每天自動推播，手機透過 Tailscale 私密連線。
@@ -95,7 +108,7 @@ python run.py auto               # 收盤後一鍵：更新資料 → 每日建�
 
 **排程（擇一）**
 
-- **GitHub Actions**：`.github/workflows/daily.yml` 每個交易日台北時間 16:47 執行 `auto`，並用 cache 保留資料快取。
+- **GitHub Actions**：`.github/workflows/daily.yml` 可以在每個交易日台北時間 16:47 執行 `auto`。**預設關閉**，因為公開 repo 的執行紀錄任何人都看得到；要啟用請先把 repo 改成 Private，再打開檔案裡的 schedule。
 - **自己的電腦（Linux/macOS cron）**：
 
 ```bash
@@ -220,7 +233,7 @@ python run.py daytrade record 2330 1000 1050 1062       # 記錄實際當沖，�
 | ntfy | `NTFY_TOPIC`（可選 `NTFY_SERVER`）。手機裝 ntfy App 並訂閱同一個 topic 即可，免註冊 |
 | email | `SMTP_HOST`、`SMTP_PORT`、`SMTP_USER`、`SMTP_PASSWORD`、`EMAIL_TO` |
 
-設定好之後，用 `python run.py notify-test` 測試。GitHub Actions 排程設定在 `.github/workflows/daily.yml`，每個交易日 18:07 執行。
+設定好之後，用 `python run.py notify-test` 測試。
 
 ## 專案結構
 

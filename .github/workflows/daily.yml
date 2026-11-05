@@ -3,10 +3,14 @@
 # Secrets：PORTFOLIO_JSON、CASH_LEDGER_JSON（兩個檔案內容）、推播金鑰；
 # 選填 FINMIND_TOKEN、FUGLE_API_KEY、ANTHROPIC_API_KEY。
 # 注意：Actions 裡的 portfolio/cash_ledger 是唯讀複本，持股或餘額變動後請更新 Secrets。
+#
+# ⚠️ 隱私：公開 repo 的 Actions 執行紀錄與附件任何人都看得到，所以這裡「不印出、不上傳」報告，
+#    結果只透過推播送給你。已經用雲端主機（deploy/）排程的話，維持預設關閉即可，避免重複推播。
+#    要啟用每日自動執行：把下面 schedule 兩行的 # 拿掉（建議先把 repo 改成 Private）。
 name: daily-plan
 on:
-  schedule:
-    - cron: "47 8 * * 1-5"   # UTC 08:47 = 台北 16:47
+  # schedule:
+  #   - cron: "47 8 * * 1-5"   # UTC 08:47 = 台北 16:47
   workflow_dispatch:
 jobs:
   plan:
@@ -39,10 +43,4 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-        run: python run.py auto
-      - uses: actions/upload-artifact@v4
-        with:
-          name: plan
-          path: |
-            output/
-            data/kbars/
+        run: python run.py auto > /dev/null 2>&1 || (echo "執行失敗（為保護隱私不顯示細節，請在本機或主機上重跑查看）" && exit 1)

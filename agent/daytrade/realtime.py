@@ -149,11 +149,15 @@ def get_quote_fetcher(cfg, ids=None):
 
 
 def watch(plans, cfg, interval=10, dry_run=False):
+    src = cfg["daytrade"].get("quote_source", "twse_mis")
+    limit = cfg["daytrade"].get("fugle_ws_max_subscriptions", 5)
+    if src == "fugle_ws" and len(plans) > limit:
+        print(f"⚠️ 富果 WebSocket 方案上限 {limit} 檔，只監控名單前 {limit} 檔（分數最高）")
+        plans = plans[:limit]
     w = Watcher(plans, cfg)
     ids = [p["stock_id"] for p in plans]
     fetch, tick, close = get_quote_fetcher(cfg, ids)
     interval = tick or interval
-    src = cfg["daytrade"].get("quote_source", "twse_mis")
     print(f"監控 {', '.join(ids)}，報價來源 {src}，每 {interval} 秒檢查；Ctrl+C 結束")
     try:
         while True:
